@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     // Variables para obtener los parámetros de la línea de comandos
     unsigned int seed = 1;
     int p = VECTOR_SIZE;
-    int n_threads = 8;
+    int n_threads = 2;
     int max_iters = 1000;
 
     // Obtener valores de entrada

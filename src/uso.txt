@@ -1,0 +1,38 @@
+make clean
+make DEBUG=1
+./saxpy
+
+#para ejecutarlo en modo debug
+
+make clean
+make DEBUG=0
+./saxpy
+
+#para modo normal
+
+
+Makefile  
+#ayuda a compilar dependiendo del modo debug 0 o 1
+original.c
+#es el saxpyoriginal del proyecto
+
+saxpy
+#es el que uso finalmente para cambiar el numero de hilos para probar mas facil sin editar los nombres del makefile
+
+saxpy.c
+#es el .c que compilo para poder ejecurat
+
+saxpy.o  
+#es el saxpy.o original
+
+saxpy.o.original  
+# es el saxpy orignial
+
+saxpymejorado  
+saxpymejorado.c  
+#son el archivo .c editado y compilado listo para ejecutar con 2 hilos
+
+
+
+saxpyoriginal
+# es el saxyporiginal
