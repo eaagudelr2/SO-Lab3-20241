@@ -1,115 +1,110 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <pthread.h>
 
-#define VECTOR_SIZE 10000000
-#define MAX_THREADS 16
-
-// Estructura para pasar argumentos a los hilos
-typedef struct {
+// Estructura para pasar argumentos a cada hilo
+struct ThreadArgs {
+    int start;
+    int end;
     double* X;
     double* Y;
     double a;
-    int start_index;
-    int end_index;
-} ThreadArgs;
+    double exec_time;
+    int thread_id;
+};
 
-// Función de operación SAXPY
-void* saxpy(void* arg) {
-    ThreadArgs* args = (ThreadArgs*)arg;
-    for (int i = args->start_index; i < args->end_index; i++) {
-        args->Y[i] = args->Y[i] + args->a * args->X[i];
+// Función ejecutada por cada hilo
+void* saxpy_thread(void* args) {
+    struct ThreadArgs* t_args = (struct ThreadArgs*)args;
+
+    struct timeval t_start, t_end;
+    gettimeofday(&t_start, NULL);
+
+    // Realizar SAXPY para la porción de datos asignada al hilo
+    for (int i = t_args->start; i < t_args->end; i++) {
+        t_args->Y[i] = t_args->Y[i] + t_args->a * t_args->X[i];
     }
-    pthread_exit(NULL);
+
+    gettimeofday(&t_end, NULL);
+    t_args->exec_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;  // sec to ms
+    t_args->exec_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0; // us to ms
+
+    return NULL;
 }
 
-int main(int argc, char *argv[]) {
-    // Variables para obtener los parámetros de la línea de comandos
-    unsigned int seed = 1;
-    int p = VECTOR_SIZE;
-    int n_threads = 8;
-    int max_iters = 1000;
+void run_saxpy(int num_threads, int p, double* X, double* Y, double a) {
+    pthread_t threads[num_threads];
+    struct ThreadArgs thread_args[num_threads];
 
-    // Obtener valores de entrada
-    int opt;
-    while ((opt = getopt(argc, argv, ":p:s:n:i:")) != -1) {
-        switch(opt) {
-            case 'p':
-                p = atoi(optarg);
-                assert(p > 0 && p <= VECTOR_SIZE);
-                break;
-            case 's':
-                seed = atoi(optarg);
-                break;
-            case 'n':
-                n_threads = atoi(optarg);
-                assert(n_threads > 0 && n_threads <= MAX_THREADS);
-                break;
-            case 'i':
-                max_iters = atoi(optarg);
-                break;
-            case ':':
-                printf("La opción -%c necesita un valor\n", optopt);
-                break;
-            case '?':
-                fprintf(stderr, "Uso: %s [-p <tamaño del vector>] [-s <semilla>] [-n <número de hilos>] [-i <máximo de iteraciones>]\n", argv[0]);
-                exit(EXIT_FAILURE);
-        }
+    int chunk_size = p / num_threads;
+    int remainder = p % num_threads;
+    int start = 0;
+
+    for (int i = 0; i < num_threads; i++) {
+        int extra = (i < remainder) ? 1 : 0;
+        int end = start + chunk_size + extra;
+        thread_args[i].start = start;
+        thread_args[i].end = end;
+        thread_args[i].X = X;
+        thread_args[i].Y = Y;
+        thread_args[i].a = a;
+        thread_args[i].thread_id = i;
+
+        pthread_create(&threads[i], NULL, saxpy_thread, (void*)&thread_args[i]);
+        start = end;
     }
 
-    // Inicializar datos
-    srand(seed);
-    double* X = (double*)malloc(sizeof(double) * p);
-    double* Y = (double*)malloc(sizeof(double) * p);
-    double* Y_avgs = (double*)malloc(sizeof(double) * max_iters);
-    double a = (double)rand() / RAND_MAX;
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+}
 
-    // Inicializar vectores X e Y
-    for (int i = 0; i < p; i++) {
+int main(int argc, char* argv[]) {
+    int p = 50000000;
+    double* X;
+    double a;
+    double* Y;
+    struct timeval t_start, t_end;
+    double exec_time;
+    int thread_counts[] = {2, 4, 8, 16};
+
+    X = (double*) malloc(sizeof(double) * p);
+    Y = (double*) malloc(sizeof(double) * p);
+    a = (double) rand() / RAND_MAX;
+
+    for(int i = 0; i < p; i++){
         X[i] = (double)rand() / RAND_MAX;
         Y[i] = (double)rand() / RAND_MAX;
     }
 
-    // Crear hilos
-    pthread_t threads[MAX_THREADS];
-    ThreadArgs args[MAX_THREADS];
-    int section_size = p / n_threads;
-    for (int i = 0; i < n_threads; i++) {
-        args[i].X = X;
-        args[i].Y = Y;
-        args[i].a = a;
-        args[i].start_index = i * section_size;
-        args[i].end_index = (i == n_threads - 1) ? p : (i + 1) * section_size;
-        pthread_create(&threads[i], NULL, saxpy, (void*)&args[i]);
+    FILE* results_file = fopen("execution_times.txt", "w");
+    if (results_file == NULL) {
+        fprintf(stderr, "Error al abrir el archivo de resultados.\n");
+        return 1;
     }
 
-    printf("p = %d, seed = %d, n_threads = %d, max_iters = %d\n", p, seed, n_threads, max_iters);
+    for (int i = 0; i < 4; i++) {
+        int num_threads = thread_counts[i];
+        gettimeofday(&t_start, NULL);
+        run_saxpy(num_threads, p, X, Y, a);
+        gettimeofday(&t_end, NULL);
 
-    // Tomar tiempo inicial
-    struct timeval start, end;
-    gettimeofday(&start, NULL);
+        exec_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;  // sec to ms
+        exec_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0; // us to ms
 
-    // Esperar la finalización de los hilos
-    for (int i = 0; i < n_threads; i++) {
-        pthread_join(threads[i], NULL);
+        printf("Execution time with %d threads: %f ms\n", num_threads, exec_time);
+        fprintf(results_file, "%d %f\n", num_threads, exec_time);
     }
 
-    // Tomar tiempo final
-    gettimeofday(&end, NULL);
-    double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0;  // sec to ms
-    elapsed_time += (end.tv_usec - start.tv_usec) / 1000.0; // us to ms
-    printf("Tiempo de ejecución: %.2f ms\n", elapsed_time);
+    fclose(results_file);
 
-    // Imprimir resultados
-    printf("Últimos 3 valores de Y: %.6f, %.6f, %.6f\n", Y[p - 3], Y[p - 2], Y[p - 1]);
+    printf("Last 3 values of Y: %f, %f, %f\n", Y[p-3], Y[p-2], Y[p-1]);
 
-    // Liberar memoria
     free(X);
     free(Y);
-    free(Y_avgs);
 
     return 0;
 }
